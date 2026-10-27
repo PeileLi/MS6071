@@ -1,0 +1,4 @@
+Model,R_squared_train,Test_RMSE,Test_MAE
+Model 2: km + age (raw price),0.17666222805287593,432133.3269449279,236568.3996566022
+Model 3: log(price) ~ km + age,0.514276873026144,438997.61568853987,212970.04736629318
+Model 4: log(price) ~ km + age + power + transmission + fuel,0.8238208706936018,184209.17847053581,112641.87424669674
