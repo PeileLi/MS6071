@@ -2,7 +2,8 @@ library(tidyverse)
 library(broom)
 library(scales)
 
-csv_path <- "C:/Users/a2871/OneDrive - University of Limerick/Year5/MS6071/Car details v3.csv"
+#csv_path <- "C:/Users/a2871/OneDrive - University of Limerick/Year5/MS6071/Car details v3.csv"
+csv_path <- "Library/CloudStorage/OneDrive-UniversityofLimerick/Year5/MS6071/Car details v3.csv"
 
 # Output folders
 dir.create("plots",  showWarnings = FALSE)
@@ -299,7 +300,6 @@ ggplot(cars_ext, aes(km_driven, selling_price, color = age_group)) +
                 labels = label_number(scale = 1e-5, accuracy = 0.1, drop0trailing = TRUE),
                 minor_breaks = NULL) +
   labs(title = "Distance vs price, by car age group and fuel type",
-       subtitle = "Once fuel type is separated, distance lowers price clearly for newer cars and little for older ones",
        x = "Distance Travelled (thousand km)",
        y = "Selling Price (₹ lakh, log scale)",
        color = "Car age")
