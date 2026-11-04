@@ -2,8 +2,8 @@ library(tidyverse)
 library(broom)
 library(scales)
 
-#csv_path <- "C:/Users/a2871/OneDrive - University of Limerick/Year5/MS6071/Car details v3.csv"
-csv_path <- "Library/CloudStorage/OneDrive-UniversityofLimerick/Year5/MS6071/Car details v3.csv"
+csv_path <- "C:/Users/a2871/OneDrive - University of Limerick/Year5/MS6071/Car details v3.csv"   
+#csv_path <- "Library/CloudStorage/OneDrive-UniversityofLimerick/Year5/MS6071/Car details v3.csv" 
 
 # Output folders
 dir.create("plots",  showWarnings = FALSE)
@@ -22,7 +22,6 @@ names(cars)               # variable names
 glimpse(cars)             # variable types
 colSums(is.na(cars))      # missing values per column
 
-
 # Part 2 - Data cleaning
 
 # 2.1 Convert specification columns to numeric.
@@ -40,7 +39,7 @@ cat("Exact duplicate rows:", n_duplicates, "of", nrow(cars), "\n")
 cars_dedup <- cars %>% distinct()
 cat("Rows after removing duplicates:", nrow(cars_dedup), "\n")
 
-# 2.3 Implausible values
+# 2.3 Implausible values (report before filtering)
 cat("Missing price/km/year:",
     sum(is.na(cars_dedup$selling_price) | is.na(cars_dedup$km_driven) | is.na(cars_dedup$year)), "\n")
 cat("Price <= 0:",          sum(cars_dedup$selling_price <= 0, na.rm = TRUE), "\n")
@@ -56,12 +55,14 @@ cars_model <- cars_dedup %>%
     km_driven > 0, km_driven <= 300000,
     year >= 1983, year <= 2020
   ) %>%
-  mutate(car_age = 2020 - year)   # latest year in the data is 2020
+  mutate(
+    car_age = 2020 - year,          # latest year in the data is 2020
+    km_10k  = km_driven / 10000     # distance in units of 10,000 km
+  )
 
 cat("Rows used for modelling:", nrow(cars_model), "\n")
 
 # Part 3 - Descriptive statistics
-
 summary(cars_model[c("selling_price", "km_driven", "car_age")])
 
 desc_stats <- cars_model %>%
@@ -79,11 +80,8 @@ desc_stats <- cars_model %>%
   )
 print(desc_stats)
 
-
 # Part 4 - Exploratory data analysis
-
-
-# 4.1 Price distribution: raw vs log (shows why a log transformation helps)
+# 4.1 Price distribution: raw vs log
 p_raw <- ggplot(cars_model, aes(selling_price)) +
   geom_histogram(bins = 40, fill = "steelblue") +
   scale_x_continuous(labels = label_comma()) +
@@ -117,7 +115,7 @@ ggplot(cars_model, aes(km_driven, selling_price)) +
        x = "Distance Travelled (km)", y = "Selling Price (₹)")
 save_plot("02_price_vs_km.png")
 
-# 4.3 Selling price vs car age (raw scale, then log axis)
+# 4.3 Selling price vs car age
 ggplot(cars_model, aes(car_age, selling_price)) +
   geom_jitter(width = 0.2, alpha = 0.25) +
   geom_smooth(method = "lm", se = FALSE, color = "red") +
@@ -145,23 +143,28 @@ ggplot(cars_model, aes(mileage_num, selling_price)) +
        x = "Fuel Efficiency (km/litre or km/kg)", y = "Selling Price (₹)")
 save_plot("05_price_vs_efficiency.png")
 
-
 # Part 5 - Model 1: simple linear regression
-
-model1 <- lm(selling_price ~ km_driven, data = cars_model)
+model1 <- lm(selling_price ~ km_10k, data = cars_model)
 summary(model1)
 confint(model1)
 
 # Part 6 - Model 2: multiple linear regression
-model2 <- lm(selling_price ~ km_driven + car_age, data = cars_model)
+model2 <- lm(selling_price ~ km_10k + car_age, data = cars_model)
 summary(model2)
 confint(model2)
 
-# F-test for nested models
+# Does adding car age help? F-test for nested models
 anova(model1, model2)
 
-# Part 7 - Model comparison and validation
+# Sanity check: rescaling a predictor changes the size of its coefficient,
+model2_km <- lm(selling_price ~ km_driven + car_age, data = cars_model)
+cat("Largest difference in fitted values:", max(abs(fitted(model2) - fitted(model2_km))), "\n")
+cat("Coefficient per 10,000 km:", coef(model2)["km_10k"],
+    "| per km x 10,000:", coef(model2_km)["km_driven"] * 10000, "\n")
+cat("p-value per 10,000 km:", summary(model2)$coefficients["km_10k", 4],
+    "| p-value per km:", summary(model2_km)$coefficients["km_driven", 4], "\n")
 
+# Part 7 - Model comparison and validation
 # 7.1 In-sample comparison
 model_comparison <- tibble(
   Model         = c("Model 1: km", "Model 2: km + age"),
@@ -183,8 +186,8 @@ train <- cars_model[train_idx, ]
 test  <- cars_model[-train_idx, ]
 cat("Training rows:", nrow(train), " Test rows:", nrow(test), "\n")
 
-m1_train <- lm(selling_price ~ km_driven, data = train)
-m2_train <- lm(selling_price ~ km_driven + car_age, data = train)
+m1_train <- lm(selling_price ~ km_10k, data = train)
+m2_train <- lm(selling_price ~ km_10k + car_age, data = train)
 
 test_errors <- tibble(
   Model = c("Model 1: km", "Model 2: km + age"),
@@ -195,23 +198,21 @@ test_errors <- tibble(
 )
 print(test_errors)
 
-
 # Part 8 - Regression diagnostics and results output
 
-
-# 8.1 Standard diagnostic plots: residuals vs fitted (linearity, constant variance),
-#     Q-Q (normality), scale-location (constant variance), residuals vs leverage (influence)
+# 8.1 Standard diagnostic plots: residuals vs fitted
+#Q-Q (normality), scale-location (constant variance), residuals vs leverage (influence)
 par(mfrow = c(2, 2))
 plot(model2)
 par(mfrow = c(1, 1))
 
-# 8.2 Constant variance test (Breusch-Pagan) - needs the lmtest package
+# 8.2 Constant variance test
 if (requireNamespace("lmtest", quietly = TRUE)) print(lmtest::bptest(model2))
 
-# 8.3 Collinearity (VIF) - needs the car package
+# 8.3 Collinearity
 if (requireNamespace("car", quietly = TRUE)) print(car::vif(model2))
 
-# 8.4 Influential observations (Cook's distance > 4/n)
+# 8.4 Influential observations
 cooks_threshold <- 4 / nrow(cars_model)
 influential <- cars_model %>%
   mutate(cooks_d     = cooks.distance(model2),
@@ -236,12 +237,10 @@ write_csv(coef_model2,       "output/model2_coefficients.csv")
 write_csv(influential %>% select(name, year, km_driven, selling_price, cooks_d, leverage, std_residual),
           "output/influential_observations.csv")
 
-
-# Sample for the extension: needs power, and only Diesel/Petrol (too few CNG/LPG)
+# Sample for the extension
 cars_ext <- cars_model %>%
   filter(!is.na(power_num), fuel %in% c("Diesel", "Petrol")) %>%
   mutate(
-    km_10k       = km_driven / 10000,   # unit: 10,000 km
     power_10     = power_num / 10,      # unit: 10 bhp
     log_price    = log(selling_price),
     transmission = factor(transmission, levels = c("Manual", "Automatic")),
@@ -250,13 +249,12 @@ cars_ext <- cars_model %>%
 cat("Rows in extension sample:", nrow(cars_ext), "\n")
 
 # Models fitted on the same extension sample so they are comparable
-ext_model2 <- lm(selling_price ~ km_driven + car_age, data = cars_ext)
 model3 <- lm(log_price ~ km_10k + car_age, data = cars_ext)
 model4 <- lm(log_price ~ km_10k + car_age + power_10 + transmission + fuel, data = cars_ext)
 summary(model3)
 summary(model4)
 
-# Test-set comparison on a common split (log models are back-transformed to rupees)
+# Test-set comparison on a common split
 set.seed(123)
 ext_idx   <- sample(nrow(cars_ext), size = round(0.8 * nrow(cars_ext)))
 ext_train <- cars_ext[ext_idx, ]
@@ -273,7 +271,7 @@ eval_split <- function(label, formula, log_resp) {
 }
 
 ext_comparison <- bind_rows(
-  eval_split("Model 2: km + age (raw price)", selling_price ~ km_driven + car_age, FALSE),
+  eval_split("Model 2: km + age (raw price)", selling_price ~ km_10k + car_age, FALSE),
   eval_split("Model 3: log(price) ~ km + age", log_price ~ km_10k + car_age, TRUE),
   eval_split("Model 4: log(price) ~ km + age + power + transmission + fuel",
              log_price ~ km_10k + car_age + power_10 + transmission + fuel, TRUE)
@@ -300,12 +298,13 @@ ggplot(cars_ext, aes(km_driven, selling_price, color = age_group)) +
                 labels = label_number(scale = 1e-5, accuracy = 0.1, drop0trailing = TRUE),
                 minor_breaks = NULL) +
   labs(title = "Distance vs price, by car age group and fuel type",
+       subtitle = "Once fuel type is separated, distance lowers price clearly for newer cars and little for older ones",
        x = "Distance Travelled (thousand km)",
        y = "Selling Price (₹ lakh, log scale)",
        color = "Car age")
 save_plot("E1_km_price_by_age_fuel.png", 11, 5.5)
 
-# E.2 Coefficient plot: % effect of each variable on price (easiest to explain)
+# E.2 Coefficient plot: % effect of each variable on price
 coef_tbl <- tidy(model4, conf.int = TRUE) %>%
   filter(term != "(Intercept)") %>%
   mutate(
